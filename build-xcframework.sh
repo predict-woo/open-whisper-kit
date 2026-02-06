@@ -17,8 +17,8 @@ GGML_METAL_USE_BF16=ON
 GGML_OPENMP=OFF
 BUILD_STATIC_XCFRAMEWORK=${BUILD_STATIC_XCFRAMEWORK:-OFF}
 
-COMMON_C_FLAGS="-Wno-macro-redefined -Wno-shorten-64-to-32 -Wno-unused-command-line-argument -g"
-COMMON_CXX_FLAGS="-Wno-macro-redefined -Wno-shorten-64-to-32 -Wno-unused-command-line-argument -g"
+COMMON_C_FLAGS="-Wno-macro-redefined -Wno-shorten-64-to-32 -Wno-unused-command-line-argument -DGGML_MAX_NAME=128 -g"
+COMMON_CXX_FLAGS="-Wno-macro-redefined -Wno-shorten-64-to-32 -Wno-unused-command-line-argument -DGGML_MAX_NAME=128 -g"
 
 # Common options for all builds
 COMMON_CMAKE_ARGS=(

@@ -27,6 +27,11 @@ let package = Package(
             dependencies: ["whisper", "sortformer"],
             path: "Sources/OpenWhisperKit"
         ),
+        .executableTarget(
+            name: "diarize-cli",
+            dependencies: ["OpenWhisperKit"],
+            path: "Sources/diarize-cli"
+        ),
         .testTarget(
             name: "OpenWhisperKitTests",
             dependencies: ["OpenWhisperKit"],
