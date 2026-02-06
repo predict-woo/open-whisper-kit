@@ -1,0 +1,36 @@
+build/
+*.gguf
+model.nemo
+__pycache__/
+*.pyc
+.venv/
+nemo_unpacked/
+nemo_inspection/
+ref_tensors/
+ref_output/
+*.raw
+*.rttm
+!nemo_streaming.rttm
+.sisyphus/
+test_audio.wav
+test_long.wav
+.cache/
+stderr.log
+compile_commands.json
+.DS_Store
+PLAN-*.md
+
+# CoreML models (generated from model.nemo)
+*.mlpackage/
+*.mlmodelc/
+
+# Node.js
+node_modules/
+*.node
+dist/
+
+# Example recordings
+examples/realtime-diarization/recordings/
+
+# Reference repositories
+ref/

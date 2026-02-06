@@ -1,0 +1,31 @@
+{
+  "name": "streaming-sortformer-node",
+  "version": "0.1.0",
+  "description": "Node.js bindings for SortFormer streaming speaker diarization",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "echo 'No tests yet'",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "node-addon-api": "^7.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "cmake-js": "^7.0.0"
+  },
+  "optionalDependencies": {
+    "@streaming-sortformer-node/darwin-arm64": "workspace:*",
+    "@streaming-sortformer-node/darwin-x64": "workspace:*"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

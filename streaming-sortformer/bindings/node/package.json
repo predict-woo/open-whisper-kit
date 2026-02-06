@@ -1,0 +1,20 @@
+{
+  "name": "streaming-sortformer-node-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Node.js bindings for SortFormer streaming speaker diarization",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "pnpm -r clean",
+    "publish": "pnpm -r publish"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.0"
+  }
+}

@@ -18,9 +18,13 @@ let package = Package(
             name: "whisper",
             path: "build-apple/whisper.xcframework"
         ),
+        .binaryTarget(
+            name: "sortformer",
+            path: "build-apple/sortformer.xcframework"
+        ),
         .target(
             name: "OpenWhisperKit",
-            dependencies: ["whisper"],
+            dependencies: ["whisper", "sortformer"],
             path: "Sources/OpenWhisperKit"
         ),
         .testTarget(

@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Real-Time Speaker Diarization</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🎤 Real-Time Speaker Diarization</h1>
+      <div class="status">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusText">Connecting...</span>
+      </div>
+    </header>
+
+    <div class="controls">
+      <div class="preset-selector">
+        <label for="presetSelect">Latency Preset:</label>
+        <select id="presetSelect">
+          <option value="low">Low Latency (~60ms)</option>
+          <option value="2s" selected>2 seconds</option>
+          <option value="3s">3 seconds</option>
+          <option value="5s">5 seconds (best accuracy)</option>
+        </select>
+      </div>
+      <button id="startBtn" disabled>Start Recording</button>
+      <button id="stopBtn" disabled>Stop Recording</button>
+    </div>
+
+    <section class="downloads" id="downloadsSection" style="display: none;">
+      <h2>Recording Complete</h2>
+      <div class="download-info" id="downloadInfo"></div>
+      <div class="download-buttons">
+        <a id="downloadAudio" class="download-btn" download>Download Audio (WAV)</a>
+        <a id="downloadRttm" class="download-btn" download>Download RTTM</a>
+      </div>
+    </section>
+
+    <section class="speakers">
+      <h2>Speaker Activity</h2>
+      <div class="speaker-bars">
+        <div class="speaker-row">
+          <span class="speaker-label">Speaker 0</span>
+          <div class="speaker-bar">
+            <div class="speaker-fill" id="speaker0" style="width: 0%"></div>
+          </div>
+          <span class="speaker-value" id="speaker0Value">0%</span>
+        </div>
+        <div class="speaker-row">
+          <span class="speaker-label">Speaker 1</span>
+          <div class="speaker-bar">
+            <div class="speaker-fill" id="speaker1" style="width: 0%"></div>
+          </div>
+          <span class="speaker-value" id="speaker1Value">0%</span>
+        </div>
+        <div class="speaker-row">
+          <span class="speaker-label">Speaker 2</span>
+          <div class="speaker-bar">
+            <div class="speaker-fill" id="speaker2" style="width: 0%"></div>
+          </div>
+          <span class="speaker-value" id="speaker2Value">0%</span>
+        </div>
+        <div class="speaker-row">
+          <span class="speaker-label">Speaker 3</span>
+          <div class="speaker-bar">
+            <div class="speaker-fill" id="speaker3" style="width: 0%"></div>
+          </div>
+          <span class="speaker-value" id="speaker3Value">0%</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="audio-level">
+      <h2>Audio Level</h2>
+      <div class="level-bar">
+        <div class="level-fill" id="levelFill" style="width: 0%"></div>
+      </div>
+    </section>
+
+    <section class="timeline">
+      <h2>Timeline (Last 30 seconds)</h2>
+      <div class="timeline-container" id="timeline">
+        <canvas id="timelineCanvas" width="800" height="120"></canvas>
+      </div>
+    </section>
+
+    <section class="log">
+      <h2>Event Log</h2>
+      <div class="log-container" id="logContainer"></div>
+    </section>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

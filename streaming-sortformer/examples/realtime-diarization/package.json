@@ -1,0 +1,13 @@
+{
+  "name": "realtime-diarization-demo",
+  "version": "1.0.0",
+  "description": "Real-time speaker diarization demo with WebUI",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.0",
+    "ws": "^8.14.0"
+  }
+}

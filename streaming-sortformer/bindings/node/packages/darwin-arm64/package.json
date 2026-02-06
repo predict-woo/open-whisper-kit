@@ -1,0 +1,26 @@
+{
+  "name": "@streaming-sortformer-node/darwin-arm64",
+  "version": "0.1.0",
+  "description": "Native bindings for SortFormer on macOS ARM64",
+  "os": ["darwin"],
+  "cpu": ["arm64"],
+  "main": "./index.js",
+  "files": [
+    "index.js",
+    "build/Release/sortformer-addon.node",
+    "src"
+  ],
+  "scripts": {
+    "build": "cmake-js build",
+    "clean": "cmake-js clean"
+  },
+  "dependencies": {
+    "node-addon-api": "^7.0.0"
+  },
+  "devDependencies": {
+    "cmake-js": "^7.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
