@@ -82,10 +82,11 @@ actor WhisperContext {
                         }
                     }
                 } else {
-                    params.language = nil
-                    params.detect_language = true
-                    return samples.withUnsafeBufferPointer { ptr in
-                        whisper_full(context, params, ptr.baseAddress, Int32(ptr.count))
+                    return "auto".withCString { autoCStr in
+                        params.language = autoCStr
+                        return samples.withUnsafeBufferPointer { ptr in
+                            whisper_full(context, params, ptr.baseAddress, Int32(ptr.count))
+                        }
                     }
                 }
             }
@@ -98,10 +99,11 @@ actor WhisperContext {
                     }
                 }
             } else {
-                params.language = nil
-                params.detect_language = true
-                result = samples.withUnsafeBufferPointer { ptr in
-                    whisper_full(context, params, ptr.baseAddress, Int32(ptr.count))
+                result = "auto".withCString { autoCStr in
+                    params.language = autoCStr
+                    return samples.withUnsafeBufferPointer { ptr in
+                        whisper_full(context, params, ptr.baseAddress, Int32(ptr.count))
+                    }
                 }
             }
         }

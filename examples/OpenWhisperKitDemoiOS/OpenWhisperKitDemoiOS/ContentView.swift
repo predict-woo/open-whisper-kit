@@ -128,7 +128,7 @@ struct ContentView: View {
         VStack(spacing: 32) {
             VStack(spacing: 20) {
                 downloadProgressBar(
-                    title: "CoreML Encoder",
+                    title: viewModel.encoderExtracting ? "CoreML Encoder (Extracting...)" : "CoreML Encoder",
                     progress: viewModel.encoderProgress,
                     bytes: viewModel.encoderBytes
                 )
@@ -146,7 +146,7 @@ struct ContentView: View {
                 )
                 
                 downloadProgressBar(
-                    title: "Sortformer CoreML",
+                    title: viewModel.sortformerCoreMLExtracting ? "Sortformer CoreML (Extracting...)" : "Sortformer CoreML",
                     progress: viewModel.sortformerCoreMLProgress,
                     bytes: viewModel.sortformerCoreMLBytes
                 )

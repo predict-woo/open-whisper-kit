@@ -23,6 +23,8 @@ class ViewModel: ObservableObject {
     @Published var sortformerCoreMLProgress: Double = 0.0
     @Published var sortformerGGUFBytes: String = ""
     @Published var sortformerCoreMLBytes: String = ""
+    @Published var encoderExtracting: Bool = false
+    @Published var sortformerCoreMLExtracting: Bool = false
     @Published var transcriptionText: String = ""
     @Published var recordingDuration: TimeInterval = 0
     @Published var transcriptionProgress: Double = 0.0
@@ -30,6 +32,7 @@ class ViewModel: ObservableObject {
     @Published var diarizationText: String = ""
     @Published var diarizedUtterances: [DiarizedUtterance] = []
     @Published var isDiarizing: Bool = false
+    @Published var downloadError: String? = nil
     
     private let downloadManager = DownloadManager()
     private let audioRecorder = AudioRecorder()
@@ -72,13 +75,14 @@ class ViewModel: ObservableObject {
     func checkExistingModels() {
         let modelExists = FileManager.default.fileExists(atPath: modelPath.path)
         let encoderExists = FileManager.default.fileExists(atPath: encoderPath.path)
-        let sfGGUFExists = FileManager.default.fileExists(atPath: sortformerGGUFPath.path)
-        let sfCoreMLExists = FileManager.default.fileExists(atPath: sortformerCoreMLPath.path)
         
-        if modelExists && encoderExists && sfGGUFExists && sfCoreMLExists {
-            state = .ready
-            Task {
-                await loadModel()
+        if modelExists && encoderExists {
+            if verifyModels() {
+                state = .ready
+                Task { await loadModel() }
+            } else {
+                deleteCorruptModels()
+                state = .needsDownload
             }
         } else {
             state = .needsDownload
@@ -87,6 +91,7 @@ class ViewModel: ObservableObject {
     
     func startDownload() {
         state = .downloading
+        downloadError = nil
         encoderProgress = 0.0
         modelProgress = 0.0
         sortformerGGUFProgress = 0.0
@@ -113,12 +118,24 @@ class ViewModel: ObservableObject {
                 await group.waitForAll()
                 
                 await MainActor.run {
-                    if self.encoderProgress >= 1.0 && self.modelProgress >= 1.0
-                        && self.sortformerGGUFProgress >= 1.0 && self.sortformerCoreMLProgress >= 1.0 {
-                        self.state = .loadingModel
-                        Task {
-                            await self.loadModel()
+                    // Whisper models are required
+                    if self.encoderProgress >= 1.0 && self.modelProgress >= 1.0 {
+                        if self.verifyModels() {
+                            self.state = .loadingModel
+                            Task { await self.loadModel() }
+                        } else {
+                            self.deleteCorruptModels()
+                            self.state = .error("Model files are corrupt. Please download again.")
                         }
+                    } else if let error = self.downloadError {
+                        self.state = .error(error)
+                    } else {
+                        self.state = .error("Whisper model download incomplete")
+                    }
+                    
+                    // Log sortformer download status (non-fatal)
+                    if self.sortformerGGUFProgress < 1.0 || self.sortformerCoreMLProgress < 1.0 {
+                        print("[ViewModel] WARNING: Sortformer models not fully downloaded. Diarization will be unavailable.")
                     }
                 }
             }
@@ -131,13 +148,19 @@ class ViewModel: ObservableObject {
             
             for await progress in stream {
                 await MainActor.run {
+                    if progress.bytesDownloaded == -1 {
+                        self.encoderExtracting = true
+                    }
                     self.encoderProgress = progress.progress
-                    self.encoderBytes = self.formatBytes(progress.bytesDownloaded, total: progress.totalBytes)
+                    self.encoderBytes = progress.bytesDownloaded == -1
+                        ? "Extracting..."
+                        : self.formatBytes(progress.bytesDownloaded, total: progress.totalBytes)
                 }
             }
+            await MainActor.run { self.encoderExtracting = false }
         } catch {
             await MainActor.run {
-                self.state = .error("Failed to download encoder: \(error.localizedDescription)")
+                self.downloadError = "Failed to download encoder: \(error.localizedDescription)"
             }
         }
     }
@@ -154,7 +177,7 @@ class ViewModel: ObservableObject {
             }
         } catch {
             await MainActor.run {
-                self.state = .error("Failed to download model: \(error.localizedDescription)")
+                self.downloadError = "Failed to download model: \(error.localizedDescription)"
             }
         }
     }
@@ -170,9 +193,7 @@ class ViewModel: ObservableObject {
                 }
             }
         } catch {
-            await MainActor.run {
-                self.state = .error("Failed to download sortformer GGUF: \(error.localizedDescription)")
-            }
+            print("[ViewModel] WARNING: Failed to download sortformer GGUF: \(error.localizedDescription)")
         }
     }
     
@@ -182,14 +203,18 @@ class ViewModel: ObservableObject {
             
             for await progress in stream {
                 await MainActor.run {
+                    if progress.bytesDownloaded == -1 {
+                        self.sortformerCoreMLExtracting = true
+                    }
                     self.sortformerCoreMLProgress = progress.progress
-                    self.sortformerCoreMLBytes = self.formatBytes(progress.bytesDownloaded, total: progress.totalBytes)
+                    self.sortformerCoreMLBytes = progress.bytesDownloaded == -1
+                        ? "Extracting..."
+                        : self.formatBytes(progress.bytesDownloaded, total: progress.totalBytes)
                 }
             }
+            await MainActor.run { self.sortformerCoreMLExtracting = false }
         } catch {
-            await MainActor.run {
-                self.state = .error("Failed to download sortformer CoreML: \(error.localizedDescription)")
-            }
+            print("[ViewModel] WARNING: Failed to download sortformer CoreML: \(error.localizedDescription)")
         }
     }
     
@@ -202,26 +227,35 @@ class ViewModel: ObservableObject {
             let config = OpenWhisperKitConfig(modelPath: modelPath.path)
             let kit = try await OpenWhisperKit(config)
             
-            // Load sortformer context (graceful degradation if it fails)
-            var sfContext: SortFormerContext?
-            if FileManager.default.fileExists(atPath: sortformerGGUFPath.path) {
-                do {
-                    sfContext = try SortFormerContext.createContext(modelPath: sortformerGGUFPath.path)
-                    print("[ViewModel] SortFormer model loaded successfully")
-                } catch {
-                    print("[ViewModel] WARNING: Failed to load sortformer model: \(error.localizedDescription)")
-                }
-            }
-            
             await MainActor.run {
                 self.whisperKit = kit
-                self.sortformerContext = sfContext
                 self.state = .ready
             }
         } catch {
             await MainActor.run {
                 self.state = .error("Failed to load model: \(error.localizedDescription)")
             }
+        }
+    }
+    
+    private func ensureSortformerLoaded() async -> SortFormerContext? {
+        if let existing = sortformerContext {
+            return existing
+        }
+        
+        guard FileManager.default.fileExists(atPath: sortformerGGUFPath.path) else {
+            print("[ViewModel] Sortformer model not found at \(sortformerGGUFPath.path)")
+            return nil
+        }
+        
+        do {
+            let context = try SortFormerContext.createContext(modelPath: sortformerGGUFPath.path)
+            await MainActor.run { self.sortformerContext = context }
+            print("[ViewModel] SortFormer model loaded successfully")
+            return context
+        } catch {
+            print("[ViewModel] WARNING: Failed to load sortformer: \(error.localizedDescription)")
+            return nil
         }
     }
     
@@ -340,8 +374,7 @@ class ViewModel: ObservableObject {
                 self.transcriptionTime = String(format: "%.1fs", elapsed)
             }
             
-            // Run diarization if sortformer is available
-            if let sfContext = sortformerContext {
+            if let sfContext = await ensureSortformerLoaded() {
                 await MainActor.run { self.isDiarizing = true }
                 
                 do {
@@ -389,6 +422,45 @@ class ViewModel: ObservableObject {
                 self.state = .error("Transcription failed: \(error.localizedDescription)")
             }
         }
+    }
+    
+    private func verifyModels() -> Bool {
+        let fm = FileManager.default
+        
+        let encoderDir = encoderPath.path
+        let requiredEncoderFiles = [
+            "\(encoderDir)/coremldata.bin",
+            "\(encoderDir)/model.mil",
+            "\(encoderDir)/weights/weight.bin"
+        ]
+        for file in requiredEncoderFiles {
+            guard fm.fileExists(atPath: file),
+                  let attrs = try? fm.attributesOfItem(atPath: file),
+                  let size = attrs[.size] as? UInt64,
+                  size > 0 else {
+                print("[ViewModel] VERIFICATION FAILED: \(file) missing or empty")
+                return false
+            }
+        }
+        
+        guard fm.fileExists(atPath: modelPath.path),
+              let modelAttrs = try? fm.attributesOfItem(atPath: modelPath.path),
+              let modelSize = modelAttrs[.size] as? UInt64,
+              modelSize > 1_000_000 else {
+            print("[ViewModel] VERIFICATION FAILED: Whisper GGUF model missing or too small")
+            return false
+        }
+        
+        return true
+    }
+    
+    private func deleteCorruptModels() {
+        let fm = FileManager.default
+        let paths = [modelPath, encoderPath, sortformerGGUFPath, sortformerCoreMLPath]
+        for path in paths {
+            try? fm.removeItem(at: path)
+        }
+        print("[ViewModel] Deleted all model files for re-download")
     }
     
     private func formatBytes(_ bytes: Int64, total: Int64) -> String {

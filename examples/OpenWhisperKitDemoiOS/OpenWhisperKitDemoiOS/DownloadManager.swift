@@ -77,18 +77,24 @@ final class DownloadManager: NSObject, URLSessionDownloadDelegate, @unchecked Se
                 lock.lock()
                 let continuation = progressContinuations.removeValue(forKey: downloadTask)
                 lock.unlock()
-                let bytesReceived = downloadTask.countOfBytesReceived
                 let bytesExpected = downloadTask.countOfBytesExpectedToReceive
 
                 DispatchQueue.global(qos: .userInitiated).async {
                     do {
-                        try ZipExtractor.extract(zipAt: destination)
+                        try ZipExtractor.extract(zipAt: destination) { extractProgress in
+                            let adjustedProgress = 0.95 + (extractProgress * 0.05)
+                            continuation?.yield(DownloadProgress(
+                                bytesDownloaded: -1,
+                                totalBytes: bytesExpected,
+                                progress: adjustedProgress
+                            ))
+                        }
                         print("[DownloadManager] Unzip completed")
                     } catch {
                         print("[DownloadManager] Unzip ERROR: \(error)")
                     }
                     continuation?.yield(DownloadProgress(
-                        bytesDownloaded: bytesReceived,
+                        bytesDownloaded: bytesExpected,
                         totalBytes: bytesExpected,
                         progress: 1.0
                     ))
