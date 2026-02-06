@@ -99,7 +99,7 @@ struct ContentView: View {
                     .font(.system(size: 24, weight: .light))
                     .foregroundColor(.white)
                 
-                Text("Download Whisper large-v3-turbo model\n~1.5 GB total")
+                Text("Download Whisper + Sortformer models\n~1.7 GB total")
                     .font(.system(size: 13))
                     .foregroundColor(.white.opacity(0.6))
                     .multilineTextAlignment(.center)
@@ -137,6 +137,18 @@ struct ContentView: View {
                     title: "GGML Model",
                     progress: viewModel.modelProgress,
                     bytes: viewModel.modelBytes
+                )
+                
+                downloadProgressBar(
+                    title: "Sortformer GGUF",
+                    progress: viewModel.sortformerGGUFProgress,
+                    bytes: viewModel.sortformerGGUFBytes
+                )
+                
+                downloadProgressBar(
+                    title: "Sortformer CoreML",
+                    progress: viewModel.sortformerCoreMLProgress,
+                    bytes: viewModel.sortformerCoreMLBytes
                 )
             }
             .padding(.horizontal, 8)
@@ -391,36 +403,85 @@ struct ContentView: View {
     private var transcriptionResultView: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text("Transcription")
+                Text(viewModel.diarizedUtterances.isEmpty ? "Transcription" : "Diarized Transcript")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(.white)
                 
                 Spacer()
                 
-                if !viewModel.transcriptionTime.isEmpty {
+                if viewModel.isDiarizing {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .scaleEffect(0.7)
+                        Text("Diarizing...")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.6))
+                    }
+                } else if !viewModel.transcriptionTime.isEmpty {
                     Text(viewModel.transcriptionTime)
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundColor(.white.opacity(0.5))
                 }
             }
             
-            ScrollView {
-                Text(viewModel.transcriptionText)
-                    .font(.system(size: 15, weight: .regular))
-                    .foregroundColor(.white.opacity(0.9))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(16)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.white.opacity(0.05))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .stroke(Color.white.opacity(0.1), lineWidth: 1)
-                            )
-                    )
+            if !viewModel.diarizedUtterances.isEmpty {
+                diarizedResultView
+            } else {
+                ScrollView {
+                    Text(viewModel.transcriptionText)
+                        .font(.system(size: 15, weight: .regular))
+                        .foregroundColor(.white.opacity(0.9))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.white.opacity(0.05))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                                )
+                        )
+                }
+                .frame(maxHeight: 180)
             }
-            .frame(maxHeight: 180)
         }
+    }
+    
+    private var diarizedResultView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(Array(viewModel.diarizedUtterances.enumerated()), id: \.offset) { _, utterance in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(utterance.speaker ?? "Unknown")
+                            .font(.system(size: 12, weight: .bold, design: .monospaced))
+                            .foregroundColor(speakerColor(utterance.speaker))
+                        Text(utterance.text)
+                            .font(.system(size: 15))
+                            .foregroundColor(.white.opacity(0.9))
+                    }
+                }
+            }
+            .padding(16)
+        }
+        .frame(maxHeight: 300)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.white.opacity(0.05))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                )
+        )
+    }
+    
+    private func speakerColor(_ speaker: String?) -> Color {
+        guard let speaker = speaker else { return .gray }
+        if speaker.contains("0") { return Color(red: 0.4, green: 0.7, blue: 1.0) }
+        if speaker.contains("1") { return Color(red: 0.4, green: 0.9, blue: 0.5) }
+        if speaker.contains("2") { return Color(red: 1.0, green: 0.7, blue: 0.3) }
+        if speaker.contains("3") { return Color(red: 0.8, green: 0.5, blue: 1.0) }
+        return .gray
     }
     
     private var resultView: some View {
@@ -509,7 +570,7 @@ struct ContentView: View {
         HStack(spacing: 8) {
             Image(systemName: "info.circle")
                 .font(.system(size: 11))
-            Text("Powered by whisper.cpp")
+            Text("Powered by whisper.cpp + sortformer")
                 .font(.system(size: 11, weight: .medium))
         }
         .foregroundColor(.white.opacity(0.4))

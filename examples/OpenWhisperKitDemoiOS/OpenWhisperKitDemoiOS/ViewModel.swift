@@ -19,14 +19,22 @@ class ViewModel: ObservableObject {
     @Published var modelProgress: Double = 0.0
     @Published var encoderBytes: String = ""
     @Published var modelBytes: String = ""
+    @Published var sortformerGGUFProgress: Double = 0.0
+    @Published var sortformerCoreMLProgress: Double = 0.0
+    @Published var sortformerGGUFBytes: String = ""
+    @Published var sortformerCoreMLBytes: String = ""
     @Published var transcriptionText: String = ""
     @Published var recordingDuration: TimeInterval = 0
     @Published var transcriptionProgress: Double = 0.0
     @Published var transcriptionTime: String = ""
+    @Published var diarizationText: String = ""
+    @Published var diarizedUtterances: [DiarizedUtterance] = []
+    @Published var isDiarizing: Bool = false
     
     private let downloadManager = DownloadManager()
     private let audioRecorder = AudioRecorder()
     private var whisperKit: OpenWhisperKit?
+    private var sortformerContext: SortFormerContext?
     private var shouldStopTranscription = false
     
     private var recordingTimer: Timer?
@@ -34,6 +42,8 @@ class ViewModel: ObservableObject {
     
     private let encoderURL = URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-encoder.mlmodelc.zip")!
     private let modelURL = URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin")!
+    private let sortformerGGUFURL = URL(string: "https://huggingface.co/andyye/streaming-sortformer/resolve/main/model.gguf")!
+    private let sortformerCoreMLURL = URL(string: "https://huggingface.co/andyye/streaming-sortformer/resolve/main/model-coreml-head.mlmodelc.zip")!
     
     private var documentsDirectory: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
@@ -47,6 +57,14 @@ class ViewModel: ObservableObject {
         documentsDirectory.appendingPathComponent("ggml-large-v3-turbo-encoder.mlmodelc")
     }
     
+    private var sortformerGGUFPath: URL {
+        documentsDirectory.appendingPathComponent("model.gguf")
+    }
+    
+    private var sortformerCoreMLPath: URL {
+        documentsDirectory.appendingPathComponent("model-coreml-head.mlmodelc")
+    }
+    
     init() {
         checkExistingModels()
     }
@@ -54,8 +72,10 @@ class ViewModel: ObservableObject {
     func checkExistingModels() {
         let modelExists = FileManager.default.fileExists(atPath: modelPath.path)
         let encoderExists = FileManager.default.fileExists(atPath: encoderPath.path)
+        let sfGGUFExists = FileManager.default.fileExists(atPath: sortformerGGUFPath.path)
+        let sfCoreMLExists = FileManager.default.fileExists(atPath: sortformerCoreMLPath.path)
         
-        if modelExists && encoderExists {
+        if modelExists && encoderExists && sfGGUFExists && sfCoreMLExists {
             state = .ready
             Task {
                 await loadModel()
@@ -69,6 +89,8 @@ class ViewModel: ObservableObject {
         state = .downloading
         encoderProgress = 0.0
         modelProgress = 0.0
+        sortformerGGUFProgress = 0.0
+        sortformerCoreMLProgress = 0.0
         
         Task {
             await withTaskGroup(of: Void.self) { group in
@@ -80,10 +102,19 @@ class ViewModel: ObservableObject {
                     await self.downloadModel()
                 }
                 
+                group.addTask {
+                    await self.downloadSortformerGGUF()
+                }
+                
+                group.addTask {
+                    await self.downloadSortformerCoreML()
+                }
+                
                 await group.waitForAll()
                 
                 await MainActor.run {
-                    if self.encoderProgress >= 1.0 && self.modelProgress >= 1.0 {
+                    if self.encoderProgress >= 1.0 && self.modelProgress >= 1.0
+                        && self.sortformerGGUFProgress >= 1.0 && self.sortformerCoreMLProgress >= 1.0 {
                         self.state = .loadingModel
                         Task {
                             await self.loadModel()
@@ -128,6 +159,40 @@ class ViewModel: ObservableObject {
         }
     }
     
+    private func downloadSortformerGGUF() async {
+        do {
+            let stream = try await downloadManager.download(from: sortformerGGUFURL)
+            
+            for await progress in stream {
+                await MainActor.run {
+                    self.sortformerGGUFProgress = progress.progress
+                    self.sortformerGGUFBytes = self.formatBytes(progress.bytesDownloaded, total: progress.totalBytes)
+                }
+            }
+        } catch {
+            await MainActor.run {
+                self.state = .error("Failed to download sortformer GGUF: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    private func downloadSortformerCoreML() async {
+        do {
+            let stream = try await downloadManager.download(from: sortformerCoreMLURL)
+            
+            for await progress in stream {
+                await MainActor.run {
+                    self.sortformerCoreMLProgress = progress.progress
+                    self.sortformerCoreMLBytes = self.formatBytes(progress.bytesDownloaded, total: progress.totalBytes)
+                }
+            }
+        } catch {
+            await MainActor.run {
+                self.state = .error("Failed to download sortformer CoreML: \(error.localizedDescription)")
+            }
+        }
+    }
+    
     private func loadModel() async {
         await MainActor.run {
             self.state = .loadingModel
@@ -137,8 +202,20 @@ class ViewModel: ObservableObject {
             let config = OpenWhisperKitConfig(modelPath: modelPath.path)
             let kit = try await OpenWhisperKit(config)
             
+            // Load sortformer context (graceful degradation if it fails)
+            var sfContext: SortFormerContext?
+            if FileManager.default.fileExists(atPath: sortformerGGUFPath.path) {
+                do {
+                    sfContext = try SortFormerContext.createContext(modelPath: sortformerGGUFPath.path)
+                    print("[ViewModel] SortFormer model loaded successfully")
+                } catch {
+                    print("[ViewModel] WARNING: Failed to load sortformer model: \(error.localizedDescription)")
+                }
+            }
+            
             await MainActor.run {
                 self.whisperKit = kit
+                self.sortformerContext = sfContext
                 self.state = .ready
             }
         } catch {
@@ -154,6 +231,8 @@ class ViewModel: ObservableObject {
     
     func dismissResult() {
         state = .ready
+        diarizationText = ""
+        diarizedUtterances = []
     }
     
     func transcribeFile(at url: URL) {
@@ -217,6 +296,9 @@ class ViewModel: ObservableObject {
             self.state = .transcribing
             self.transcriptionProgress = 0.0
             self.transcriptionText = ""
+            self.diarizationText = ""
+            self.diarizedUtterances = []
+            self.isDiarizing = false
             self.shouldStopTranscription = false
         }
         
@@ -242,7 +324,11 @@ class ViewModel: ObservableObject {
             }
             
             print("[Transcribe] Starting transcription for: \(audioURL.path)")
-            let result = try await whisperKit.transcribe(audioPath: audioURL.path, callback: callback)
+            let result = try await whisperKit.transcribe(
+                audioPath: audioURL.path,
+                options: DecodingOptions(wordTimestamps: true),
+                callback: callback
+            )
             
             let elapsed = Date().timeIntervalSince(startTime)
             print("[Transcribe] Done in \(String(format: "%.1fs", elapsed)). Segments: \(result.segments.count)")
@@ -252,6 +338,42 @@ class ViewModel: ObservableObject {
                     self.transcriptionText = result.text
                 }
                 self.transcriptionTime = String(format: "%.1fs", elapsed)
+            }
+            
+            // Run diarization if sortformer is available
+            if let sfContext = sortformerContext {
+                await MainActor.run { self.isDiarizing = true }
+                
+                do {
+                    let samples = try AudioProcessor.loadAudio(fromPath: audioURL.path)
+                    let diarResult = try await sfContext.diarize(samples: samples)
+                    
+                    let allWords = result.segments.flatMap { $0.words ?? [] }
+                    
+                    if !allWords.isEmpty {
+                        let aligned = try DiarizationAligner.align(
+                            words: allWords,
+                            diarizationSegments: diarResult.segments,
+                            options: DiarizationAligner.AlignmentOptions(fillNearest: true, sentenceSmoothing: true)
+                        )
+                        
+                        await MainActor.run {
+                            self.diarizedUtterances = aligned.segments
+                            self.diarizationText = aligned.text
+                        }
+                        
+                        print("[Diarize] Aligned \(allWords.count) words into \(aligned.segments.count) utterances")
+                    } else {
+                        print("[Diarize] No word timestamps available, skipping diarization")
+                    }
+                } catch {
+                    print("[Diarize] WARNING: Diarization failed: \(error.localizedDescription)")
+                }
+                
+                await MainActor.run { self.isDiarizing = false }
+            }
+            
+            await MainActor.run {
                 self.state = .result
             }
         } catch is WhisperError where shouldStopTranscription {
