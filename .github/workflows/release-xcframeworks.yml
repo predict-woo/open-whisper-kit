@@ -1,0 +1,88 @@
+name: Release XCFrameworks
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  build-and-upload:
+    runs-on: macos-15
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build whisper.xcframework
+        run: bash build-xcframework.sh
+
+      - name: Build sortformer.xcframework
+        run: bash build-sortformer-xcframework.sh
+
+      - name: Zip XCFrameworks
+        run: |
+          cd build-apple
+          zip -r whisper.xcframework.zip whisper.xcframework
+          zip -r sortformer.xcframework.zip sortformer.xcframework
+
+      - name: Compute checksums
+        id: checksums
+        run: |
+          WHISPER_CHECKSUM=$(swift package compute-checksum build-apple/whisper.xcframework.zip)
+          SORTFORMER_CHECKSUM=$(swift package compute-checksum build-apple/sortformer.xcframework.zip)
+          echo "whisper=${WHISPER_CHECKSUM}" >> "$GITHUB_OUTPUT"
+          echo "sortformer=${SORTFORMER_CHECKSUM}" >> "$GITHUB_OUTPUT"
+          echo "### Checksums" >> "$GITHUB_STEP_SUMMARY"
+          echo "- whisper: \`${WHISPER_CHECKSUM}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- sortformer: \`${SORTFORMER_CHECKSUM}\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload assets to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" \
+            build-apple/whisper.xcframework.zip \
+            build-apple/sortformer.xcframework.zip \
+            --clobber
+
+      - name: Update Package.swift checksums
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+          WHISPER_CHECKSUM: ${{ steps.checksums.outputs.whisper }}
+          SORTFORMER_CHECKSUM: ${{ steps.checksums.outputs.sortformer }}
+        run: |
+          REPO="${{ github.repository }}"
+          BASE_URL="https://github.com/${REPO}/releases/download/${TAG}"
+
+          # Use sed to replace the binary target blocks
+          sed -i '' \
+            '/\.binaryTarget(/,/)/{ 
+              /name: "whisper"/,/)/{
+                s|url: ".*"|url: "'"${BASE_URL}/whisper.xcframework.zip"'"|
+                s|checksum: ".*"|checksum: "'"${WHISPER_CHECKSUM}"'"|
+              }
+              /name: "sortformer"/,/)/{
+                s|url: ".*"|url: "'"${BASE_URL}/sortformer.xcframework.zip"'"|
+                s|checksum: ".*"|checksum: "'"${SORTFORMER_CHECKSUM}"'"|
+              }
+            }' Package.swift
+
+          echo "### Updated Package.swift" >> "$GITHUB_STEP_SUMMARY"
+          echo '```swift' >> "$GITHUB_STEP_SUMMARY"
+          grep -A3 'binaryTarget' Package.swift >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit and push Package.swift
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Package.swift
+          if git diff --cached --quiet; then
+            echo "No changes to Package.swift"
+          else
+            git commit -m "chore: update Package.swift checksums for ${{ github.event.release.tag_name }}"
+            git push origin HEAD:master
+          fi
