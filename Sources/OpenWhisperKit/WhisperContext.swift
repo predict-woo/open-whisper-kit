@@ -69,43 +69,34 @@ actor WhisperContext {
             bridge.configureParams(&params)
         }
 
-        // withCString ensures the C string pointer outlives the whisper_full call
+        let ctx = self.context
+        let callWhisperFull: (inout whisper_full_params) -> Int32 = { params in
+            let langStr = options.language ?? "auto"
+            return langStr.withCString { langCStr in
+                params.language = langCStr
+                if let prompt = options.prompt {
+                    return prompt.withCString { promptCStr in
+                        params.initial_prompt = promptCStr
+                        return samples.withUnsafeBufferPointer { ptr in
+                            whisper_full(ctx, params, ptr.baseAddress, Int32(ptr.count))
+                        }
+                    }
+                } else {
+                    return samples.withUnsafeBufferPointer { ptr in
+                        whisper_full(ctx, params, ptr.baseAddress, Int32(ptr.count))
+                    }
+                }
+            }
+        }
+
         // withExtendedLifetime ensures the bridge outlives the whisper_full call
         let result: Int32
         if let bridge = bridge {
             result = withExtendedLifetime(bridge) {
-                if let language = options.language {
-                    return language.withCString { langCStr in
-                        params.language = langCStr
-                        return samples.withUnsafeBufferPointer { ptr in
-                            whisper_full(context, params, ptr.baseAddress, Int32(ptr.count))
-                        }
-                    }
-                } else {
-                    return "auto".withCString { autoCStr in
-                        params.language = autoCStr
-                        return samples.withUnsafeBufferPointer { ptr in
-                            whisper_full(context, params, ptr.baseAddress, Int32(ptr.count))
-                        }
-                    }
-                }
+                callWhisperFull(&params)
             }
         } else {
-            if let language = options.language {
-                result = language.withCString { langCStr in
-                    params.language = langCStr
-                    return samples.withUnsafeBufferPointer { ptr in
-                        whisper_full(context, params, ptr.baseAddress, Int32(ptr.count))
-                    }
-                }
-            } else {
-                result = "auto".withCString { autoCStr in
-                    params.language = autoCStr
-                    return samples.withUnsafeBufferPointer { ptr in
-                        whisper_full(context, params, ptr.baseAddress, Int32(ptr.count))
-                    }
-                }
-            }
+            result = callWhisperFull(&params)
         }
 
         if result != 0 {
