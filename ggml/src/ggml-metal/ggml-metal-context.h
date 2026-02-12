@@ -15,7 +15,7 @@ typedef struct ggml_metal * ggml_metal_t;
 ggml_metal_t ggml_metal_init(ggml_metal_device_t dev);
 void ggml_metal_free(ggml_metal_t ctx);
 
-void ggml_metal_synchronize(ggml_metal_t ctx);
+enum ggml_status ggml_metal_synchronize(ggml_metal_t ctx);
 
 void ggml_metal_set_tensor_async(ggml_metal_t ctx, struct ggml_tensor * tensor, const void * data, size_t offset, size_t size);
 void ggml_metal_get_tensor_async(ggml_metal_t ctx, const struct ggml_tensor * tensor, void * data, size_t offset, size_t size);

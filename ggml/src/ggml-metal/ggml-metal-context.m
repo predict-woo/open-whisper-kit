@@ -209,7 +209,7 @@ void ggml_metal_free(ggml_metal_t ctx) {
     free(ctx);
 }
 
-void ggml_metal_synchronize(ggml_metal_t ctx) {
+enum ggml_status ggml_metal_synchronize(ggml_metal_t ctx) {
     // wait for any backend operations to finish
     if (ctx->cmd_buf_last) {
         [ctx->cmd_buf_last waitUntilCompleted];
@@ -232,7 +232,7 @@ void ggml_metal_synchronize(ggml_metal_t ctx) {
                 if (status == MTLCommandBufferStatusError) {
                     GGML_LOG_ERROR("error: %s\n", [[cmd_buf error].localizedDescription UTF8String]);
                 }
-                GGML_ABORT("fatal error");
+                return GGML_STATUS_FAILED;
             }
         }
     }
@@ -248,7 +248,7 @@ void ggml_metal_synchronize(ggml_metal_t ctx) {
                 if (status == MTLCommandBufferStatusError) {
                     GGML_LOG_ERROR("error: %s\n", [[cmd_buf error].localizedDescription UTF8String]);
                 }
-                GGML_ABORT("fatal error");
+                return GGML_STATUS_FAILED;
             }
 
             [cmd_buf release];
@@ -256,6 +256,8 @@ void ggml_metal_synchronize(ggml_metal_t ctx) {
 
         [ctx->cmd_bufs_ext removeAllObjects];
     }
+
+    return GGML_STATUS_SUCCESS;
 }
 
 static struct ggml_metal_buffer_id ggml_metal_get_buffer_id(const struct ggml_tensor * t) {

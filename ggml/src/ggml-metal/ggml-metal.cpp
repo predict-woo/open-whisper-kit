@@ -382,7 +382,7 @@ static const char * ggml_backend_metal_name(ggml_backend_t backend) {
 static void ggml_backend_metal_free(ggml_backend_t backend) {
     ggml_metal_t ctx = (ggml_metal_t)backend->context;
 
-    // wait for any ongoing async operations to finish
+    // wait for any ongoing async operations to finish (ignore failure — freeing regardless)
     ggml_metal_synchronize(ctx);
 
     ggml_metal_free(ctx);
@@ -393,6 +393,7 @@ static void ggml_backend_metal_free(ggml_backend_t backend) {
 static void ggml_backend_metal_synchronize(ggml_backend_t backend) {
     ggml_metal_t ctx = (ggml_metal_t)backend->context;
 
+    // return value intentionally ignored — ggml_backend_synchronize API is void
     ggml_metal_synchronize(ctx);
 }
 
