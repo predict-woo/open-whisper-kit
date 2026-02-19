@@ -16,13 +16,13 @@ let package = Package(
     targets: [
         .binaryTarget(
             name: "whisper",
-            url: "https://github.com/predict-woo/open-whisper-kit/releases/download/v1.2.0/whisper.xcframework.zip",
-            checksum: "246a48e15a0d3e6303e33907814af9fc783db6af7a88aa6ed03077cb44eb2955"
+            url: "https://github.com/predict-woo/open-whisper-kit/releases/download/v1.3.0/whisper.xcframework.zip",
+            checksum: "053f5efe4ba582bca15ffbb14b9027bd9fba93f23cc8842ee42c84814da9e49e"
         ),
         .binaryTarget(
             name: "sortformer",
-            url: "https://github.com/predict-woo/open-whisper-kit/releases/download/v1.2.0/sortformer.xcframework.zip",
-            checksum: "e4da36052bead5b0aaff11885810f5a016ad315d67aa92001f7bbe5b7e021c09"
+            url: "https://github.com/predict-woo/open-whisper-kit/releases/download/v1.3.0/sortformer.xcframework.zip",
+            checksum: "60076cfca6e906fb449adbaadc8c2d0a0784c66b2bd90587c52fee97a941a5ad"
         ),
         .target(
             name: "OpenWhisperKit",
