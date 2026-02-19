@@ -695,6 +695,19 @@ extern "C" {
                            const float * samples,
                                    int   n_samples);
 
+    // Stateful variant: does NOT reset LSTM hidden/cell states between calls.
+    // Use whisper_vad_reset_state() to explicitly reset before a new audio stream.
+    // This enables per-window (512-sample) incremental processing with persistent LSTM context.
+    WHISPER_API bool whisper_vad_detect_speech_stateful(
+            struct whisper_vad_context * vctx,
+                           const float * samples,
+                                   int   n_samples);
+
+    // Explicitly reset LSTM hidden/cell states to zero.
+    // Call before processing a new audio stream with whisper_vad_detect_speech_stateful().
+    WHISPER_API void whisper_vad_reset_state(
+            struct whisper_vad_context * vctx);
+
     WHISPER_API int     whisper_vad_n_probs(struct whisper_vad_context * vctx);
     WHISPER_API float * whisper_vad_probs  (struct whisper_vad_context * vctx);
 
