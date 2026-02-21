@@ -1,8 +1,9 @@
 #!/bin/bash
 #
 # Build sortformer.xcframework for Apple platforms
-# Produces a STATIC framework with CoreML/ANE support.
-# GGML symbols are NOT compiled in — they come from whisper.xcframework at link time.
+# Produces a DYNAMIC framework with CoreML/ANE support and dSYMs.
+# GGML symbols are NOT compiled in — they come from whisper.xcframework at runtime
+# (resolved via -undefined dynamic_lookup).
 #
 set -e
 
@@ -27,8 +28,8 @@ GGML_INCLUDE="ggml/include"
 SORTFORMER_INCLUDE="${SORTFORMER_SRC}"
 COREML_INCLUDE="${SORTFORMER_SRC}/coreml"
 
-# Common compiler flags
-COMMON_FLAGS="-O2 -DSORTFORMER_USE_COREML -DGGML_MAX_NAME=128"
+# Common compiler flags (-g for debug symbols / dSYM generation)
+COMMON_FLAGS="-O2 -g -DSORTFORMER_USE_COREML -DGGML_MAX_NAME=128"
 COMMON_WARNS="-Wno-shorten-64-to-32 -Wno-unused-command-line-argument"
 CXX_STD="-std=c++17"
 
@@ -110,7 +111,7 @@ compile_sortformer() {
         -c "${BASE_DIR}/${COREML_MM}" \
         -o "${build_dir}/sortformer-coreml.o"
 
-    # 3) Merge into static library
+    # 3) Merge into static library (intermediate — will be converted to dynamic)
     echo "  Creating static library..."
     libtool -static \
         -o "${build_dir}/libsortformer.a" \
@@ -122,9 +123,9 @@ compile_sortformer() {
 }
 
 # ============================================================================
-# Helper: create framework bundle
+# Helper: create framework bundle (structure only — binary added by finalize)
 # ============================================================================
-create_framework() {
+setup_framework() {
     local build_dir="$1"
     local platform="$2"       # "macos" or "ios"
     local min_os_version="$3"
@@ -147,7 +148,6 @@ create_framework() {
 
         local header_path="${fw_dir}/Versions/A/Headers"
         local module_path="${fw_dir}/Versions/A/Modules"
-        local lib_dest="${fw_dir}/Versions/A/${FRAMEWORK_NAME}"
         local plist_path="${fw_dir}/Versions/A/Resources/Info.plist"
     else
         # iOS flat structure
@@ -156,15 +156,11 @@ create_framework() {
 
         local header_path="${fw_dir}/Headers"
         local module_path="${fw_dir}/Modules"
-        local lib_dest="${fw_dir}/${FRAMEWORK_NAME}"
         local plist_path="${fw_dir}/Info.plist"
     fi
 
     # Copy header (only sortformer.h — NOT ggml headers)
     cp "${BASE_DIR}/${SORTFORMER_H}" "${header_path}/"
-
-    # Copy static library as the framework binary
-    cp "${build_dir}/libsortformer.a" "${lib_dest}"
 
     # Create module map
     cat > "${module_path}/module.modulemap" << 'MODULEMAP'
@@ -238,7 +234,89 @@ MODULEMAP
 </plist>
 EOF
 
-    echo "  Framework created: ${fw_dir}"
+    echo "  Framework structure created: ${fw_dir}"
+}
+
+# ============================================================================
+# Helper: static -> dynamic library + dSYM + strip
+# ============================================================================
+finalize_framework() {
+    local build_dir="$1"
+    local sdk="$2"
+    local archs="$3"
+    local min_version_flag="$4"
+    local platform="$5"       # "macos" or "ios"
+    local is_simulator="$6"   # "true" or "false"
+
+    echo "--- Finalizing ${platform} framework (dynamic lib + dSYM) ---"
+
+    # Determine output path and install_name
+    local output_lib=""
+    local install_name=""
+    if [[ "${platform}" == "macos" ]]; then
+        output_lib="${build_dir}/framework/${FRAMEWORK_NAME}.framework/Versions/A/${FRAMEWORK_NAME}"
+        install_name="@rpath/${FRAMEWORK_NAME}.framework/Versions/Current/${FRAMEWORK_NAME}"
+    else
+        output_lib="${build_dir}/framework/${FRAMEWORK_NAME}.framework/${FRAMEWORK_NAME}"
+        install_name="@rpath/${FRAMEWORK_NAME}.framework/${FRAMEWORK_NAME}"
+    fi
+
+    local sysroot
+    sysroot="$(xcrun --sdk "${sdk}" --show-sdk-path)"
+
+    local arch_flags=""
+    for arch in ${archs}; do
+        arch_flags="${arch_flags} -arch ${arch}"
+    done
+
+    local temp_dir="${build_dir}/temp"
+    mkdir -p "${temp_dir}"
+
+    # 1) Create dynamic library from static library
+    #    -undefined dynamic_lookup: ggml symbols resolved at runtime from whisper.framework
+    echo "  Creating dynamic library..."
+    xcrun -sdk "${sdk}" clang++ -dynamiclib \
+        -isysroot "${sysroot}" \
+        ${arch_flags} \
+        ${min_version_flag} \
+        -Wl,-force_load,"${BASE_DIR}/${build_dir}/libsortformer.a" \
+        -framework CoreML -framework Foundation -framework Accelerate \
+        -undefined dynamic_lookup \
+        -install_name "${install_name}" \
+        -o "${output_lib}"
+
+    # 2) Mark binary as framework binary for device builds (vtool)
+    if [[ "${is_simulator}" == "false" ]]; then
+        if command -v xcrun vtool &>/dev/null; then
+            case "${platform}" in
+                "ios")
+                    echo "  Marking binary as iOS framework..."
+                    xcrun vtool -set-build-version ios ${IOS_MIN_OS_VERSION} ${IOS_MIN_OS_VERSION} -replace \
+                        -output "${output_lib}" "${output_lib}"
+                    ;;
+            esac
+        fi
+    fi
+
+    # 3) Generate dSYM
+    echo "  Generating dSYM..."
+    mkdir -p "${build_dir}/dSYMs"
+    xcrun dsymutil "${output_lib}" -o "${build_dir}/dSYMs/${FRAMEWORK_NAME}.dSYM"
+
+    # 4) Strip debug symbols from binary (dSYM already extracted)
+    echo "  Stripping debug symbols..."
+    cp "${output_lib}" "${temp_dir}/binary_to_strip"
+    xcrun strip -S "${temp_dir}/binary_to_strip" -o "${temp_dir}/stripped_lib"
+    mv "${temp_dir}/stripped_lib" "${output_lib}"
+
+    # 5) Remove any auto-generated dSYM in framework dir (causes Invalid Bundle Structure)
+    if [ -d "${output_lib}.dSYM" ]; then
+        rm -rf "${output_lib}.dSYM"
+    fi
+
+    # Clean up
+    rm -rf "${temp_dir}"
+    echo "  Done: ${output_lib}"
 }
 
 # ============================================================================
@@ -250,10 +328,18 @@ compile_sortformer \
     "arm64 x86_64" \
     "-mmacosx-version-min=${MACOS_MIN_OS_VERSION}"
 
-create_framework \
+setup_framework \
     "build-sortformer-macos" \
     "macos" \
     "${MACOS_MIN_OS_VERSION}"
+
+finalize_framework \
+    "build-sortformer-macos" \
+    "macosx" \
+    "arm64 x86_64" \
+    "-mmacosx-version-min=${MACOS_MIN_OS_VERSION}" \
+    "macos" \
+    "false"
 
 # ============================================================================
 # Build for iOS device (arm64)
@@ -264,10 +350,18 @@ compile_sortformer \
     "arm64" \
     "-mios-version-min=${IOS_MIN_OS_VERSION}"
 
-create_framework \
+setup_framework \
     "build-sortformer-ios-device" \
     "ios" \
     "${IOS_MIN_OS_VERSION}"
+
+finalize_framework \
+    "build-sortformer-ios-device" \
+    "iphoneos" \
+    "arm64" \
+    "-mios-version-min=${IOS_MIN_OS_VERSION}" \
+    "ios" \
+    "false"
 
 # ============================================================================
 # Build for iOS simulator (arm64 + x86_64)
@@ -278,13 +372,21 @@ compile_sortformer \
     "arm64 x86_64" \
     "-mios-simulator-version-min=${IOS_MIN_OS_VERSION}"
 
-create_framework \
+setup_framework \
     "build-sortformer-ios-sim" \
     "ios" \
     "${IOS_MIN_OS_VERSION}"
 
+finalize_framework \
+    "build-sortformer-ios-sim" \
+    "iphonesimulator" \
+    "arm64 x86_64" \
+    "-mios-simulator-version-min=${IOS_MIN_OS_VERSION}" \
+    "ios" \
+    "true"
+
 # ============================================================================
-# Create XCFramework
+# Create XCFramework (with dSYMs)
 # ============================================================================
 echo "=== Creating sortformer.xcframework ==="
 
@@ -296,8 +398,11 @@ mkdir -p build-apple
 
 xcodebuild -create-xcframework \
     -framework "$(pwd)/build-sortformer-macos/framework/${FRAMEWORK_NAME}.framework" \
+    -debug-symbols "$(pwd)/build-sortformer-macos/dSYMs/${FRAMEWORK_NAME}.dSYM" \
     -framework "$(pwd)/build-sortformer-ios-device/framework/${FRAMEWORK_NAME}.framework" \
+    -debug-symbols "$(pwd)/build-sortformer-ios-device/dSYMs/${FRAMEWORK_NAME}.dSYM" \
     -framework "$(pwd)/build-sortformer-ios-sim/framework/${FRAMEWORK_NAME}.framework" \
+    -debug-symbols "$(pwd)/build-sortformer-ios-sim/dSYMs/${FRAMEWORK_NAME}.dSYM" \
     -output "$(pwd)/build-apple/${FRAMEWORK_NAME}.xcframework"
 
 echo ""
@@ -361,9 +466,22 @@ else
     echo "  ✓ No _ggml_ symbols defined (good — they come from whisper.xcframework)"
 fi
 
-# Check that ggml symbols ARE referenced (U = undefined, needed at link time)
+# Check that ggml symbols ARE referenced (U = undefined, resolved at runtime via whisper.framework)
 UNDEF_GGML_COUNT=$(nm -arch arm64 "${MACOS_LIB}" 2>/dev/null | grep " U _ggml_" | wc -l | tr -d ' ')
-echo "  ✓ ${UNDEF_GGML_COUNT} undefined _ggml_ references (to be resolved by whisper.xcframework)"
+echo "  ✓ ${UNDEF_GGML_COUNT} undefined _ggml_ references (resolved at runtime from whisper.framework)"
+
+# Verify dSYMs are included in xcframework
+echo ""
+echo "Checking dSYMs in xcframework..."
+for platform_dir in "macos-arm64_x86_64" "ios-arm64" "ios-arm64_x86_64-simulator"; do
+    DSYM_PATH="build-apple/sortformer.xcframework/${platform_dir}/dSYMs/${FRAMEWORK_NAME}.dSYM"
+    if [ -d "${DSYM_PATH}" ]; then
+        echo "  ✓ dSYM present for ${platform_dir}"
+    else
+        echo "  ✗ dSYM MISSING for ${platform_dir}"
+        exit 1
+    fi
+done
 
 echo ""
 echo "=== All verifications passed ==="
