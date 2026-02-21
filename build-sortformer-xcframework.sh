@@ -58,6 +58,7 @@ fi
 echo "Cleaning previous sortformer build artifacts..."
 rm -rf build-sortformer-macos
 rm -rf build-sortformer-ios-device
+rm -rf build-sortformer-ios-sim
 
 # ============================================================================
 # Helper: compile sortformer for a given platform
@@ -269,6 +270,20 @@ create_framework \
     "${IOS_MIN_OS_VERSION}"
 
 # ============================================================================
+# Build for iOS simulator (arm64 + x86_64)
+# ============================================================================
+compile_sortformer \
+    "build-sortformer-ios-sim" \
+    "iphonesimulator" \
+    "arm64 x86_64" \
+    "-mios-simulator-version-min=${IOS_MIN_OS_VERSION}"
+
+create_framework \
+    "build-sortformer-ios-sim" \
+    "ios" \
+    "${IOS_MIN_OS_VERSION}"
+
+# ============================================================================
 # Create XCFramework
 # ============================================================================
 echo "=== Creating sortformer.xcframework ==="
@@ -282,6 +297,7 @@ mkdir -p build-apple
 xcodebuild -create-xcframework \
     -framework "$(pwd)/build-sortformer-macos/framework/${FRAMEWORK_NAME}.framework" \
     -framework "$(pwd)/build-sortformer-ios-device/framework/${FRAMEWORK_NAME}.framework" \
+    -framework "$(pwd)/build-sortformer-ios-sim/framework/${FRAMEWORK_NAME}.framework" \
     -output "$(pwd)/build-apple/${FRAMEWORK_NAME}.xcframework"
 
 echo ""
@@ -357,5 +373,6 @@ echo ""
 echo "Cleaning up intermediate build directories..."
 rm -rf build-sortformer-macos
 rm -rf build-sortformer-ios-device
+rm -rf build-sortformer-ios-sim
 
 echo "Done!"
