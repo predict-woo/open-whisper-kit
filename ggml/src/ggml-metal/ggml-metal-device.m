@@ -763,9 +763,9 @@ ggml_metal_device_t ggml_metal_device_init(void) {
                 }
             }
 
-            dev->props.use_residency_sets = true;
+            dev->props.use_residency_sets = [dev->mtl_device supportsFamily:MTLGPUFamilyApple6];
 #if defined(GGML_METAL_HAS_RESIDENCY_SETS)
-            dev->props.use_residency_sets = getenv("GGML_METAL_NO_RESIDENCY") == nil;
+            dev->props.use_residency_sets = dev->props.use_residency_sets && getenv("GGML_METAL_NO_RESIDENCY") == nil;
 #endif
 
             dev->props.use_shared_buffers = dev->props.has_unified_memory;
